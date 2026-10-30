@@ -54,3 +54,34 @@ export const workspace = {
 };
 export const window = { tabGroups: { all: [] as unknown[] } };
 export class TabInputText {}
+export class MarkdownString {
+  value = "";
+  isTrusted: unknown;
+  constructor(
+    value?: string,
+    public supportThemeIcons?: boolean,
+  ) {
+    this.value = value ?? "";
+  }
+  appendMarkdown(v: string): this {
+    this.value += v;
+    return this;
+  }
+  appendCodeblock(code: string, lang?: string): this {
+    this.value += `\n\`\`\`${lang ?? ""}\n${code}\n\`\`\`\n`;
+    return this;
+  }
+}
+export class Selection extends Range {}
+export const extensions = { getExtension: (_id: string) => undefined as unknown };
+export const commands = { executeCommand: async () => undefined };
+export const languages = { registerCodeLensProvider: () => ({ dispose() {} }) };
+export const OverviewRulerLane = { Left: 1 };
+export class ThemeColor {
+  constructor(public id: string) {}
+}
+export class Uri {
+  static joinPath(..._p: unknown[]) {
+    return new Uri();
+  }
+}

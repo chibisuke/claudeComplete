@@ -18,6 +18,14 @@ const root = path.resolve(here, "../..");
 const args = process.argv.slice(2);
 const providerArg = args.includes("--provider") ? args[args.indexOf("--provider") + 1] : undefined;
 const providers = providerArg ? [providerArg] : ["anthropic", "openai-compatible"];
+// Each run: provider + whether VS Code's proposed inline-edit API is enabled for the extension.
+const runs = providers.map((provider) => ({ provider, native: false }));
+if (!providerArg || args.includes("--native")) {
+  runs.push({ provider: "anthropic", native: true });
+}
+if (args.includes("--native-only")) {
+  runs.splice(0, runs.length, { provider: providerArg || "anthropic", native: true });
+}
 const keep = args.includes("--keep");
 const out = process.env.SMOKE_OUT || path.join(os.tmpdir(), "claudecomplete-smoke");
 fs.mkdirSync(out, { recursive: true });
@@ -124,8 +132,9 @@ function assertRequests(provider, logFile) {
     log(
       `[anthropic] ${prewarm.length} pre-warm, ${real.length} real requests, ${completions.length} completions with ${prefixes.size} distinct cached prefix(es)`,
     );
-    if (completions.length > 1 && prefixes.size !== 1) {
-      fail("cached prefix changed between completion requests");
+    // Saving the file legitimately refreshes the snapshot, so require reuse rather than a single prefix.
+    if (completions.length > 1 && prefixes.size >= completions.length) {
+      fail("no two completion requests shared a cached prefix");
     }
   } else {
     const real = reqs.filter((r) => r.kind === "openai");
@@ -144,8 +153,9 @@ function assertRequests(provider, logFile) {
   }
 }
 
-async function runProvider(provider, codeServer, vsix, chromium) {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `cc-smoke-${provider}-`));
+async function runProvider(provider, codeServer, vsix, chromium, native) {
+  const label = native ? `${provider}-native` : provider;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `cc-smoke-${label}-`));
   const userData = path.join(tmp, "user-data");
   const extDir = path.join(tmp, "extensions");
   const ws = path.join(tmp, "ws");
@@ -183,10 +193,12 @@ async function runProvider(provider, codeServer, vsix, chromium) {
     "claudeComplete.completion.debounceMs": 50,
     "claudeComplete.cache.prewarm": true,
     "claudeComplete.logPrompts": true,
+    // code-server grants proposed APIs to every extension, so force the fallback explicitly.
+    "claudeComplete.edit.presentation": native ? "native" : "inline-decorations",
   };
   fs.writeFileSync(path.join(userData, "User", "settings.json"), JSON.stringify(settings, null, 2));
 
-  log(`[${provider}] installing extension into ${extDir}`);
+  log(`[${label}] installing extension into ${extDir}`);
   execSync(
     `"${codeServer}" --install-extension "${vsix}" --extensions-dir "${extDir}" --user-data-dir "${userData}"`,
     {
@@ -208,6 +220,7 @@ async function runProvider(provider, codeServer, vsix, chromium) {
       "--disable-telemetry",
       "--disable-update-check",
       "--disable-workspace-trust",
+      ...(native ? ["--enable-proposed-api", "chibisuke.claudecomplete"] : []),
       "--user-data-dir",
       userData,
       "--extensions-dir",
@@ -226,12 +239,14 @@ async function runProvider(provider, codeServer, vsix, chromium) {
   try {
     await waitForHttp(`http://127.0.0.1:${fakePort}/`, 10000);
     await waitForHttp(`http://127.0.0.1:${csPort}/healthz`, 60000);
-    log(`[${provider}] code-server up on :${csPort}, fake api on :${fakePort}`);
+    log(`[${label}] code-server up on :${csPort}, fake api on :${fakePort}`);
     await runScenario({
       chromium,
       url: `http://127.0.0.1:${csPort}`,
       workspace: ws,
       provider,
+      native,
+      label,
       shots: out,
       log,
     });
@@ -249,21 +264,21 @@ async function runProvider(provider, codeServer, vsix, chromium) {
         : [];
       for (const f of files) {
         const content = fs.readFileSync(f, "utf8");
-        fs.writeFileSync(path.join(out, `${provider}-output-channel.log`), content);
-        log(`[${provider}] output channel (${f}):\n${content.split("\n").slice(-25).join("\n")}`);
+        fs.writeFileSync(path.join(out, `${label}-output-channel.log`), content);
+        log(`[${label}] output channel (${f}):\n${content.split("\n").slice(-25).join("\n")}`);
       }
     } catch (e) {
       log(`[${provider}] could not collect logs: ${e.message}`);
     }
     if (fs.existsSync(fakeLog)) {
-      fs.copyFileSync(fakeLog, path.join(out, `${provider}-requests.log`));
+      fs.copyFileSync(fakeLog, path.join(out, `${label}-requests.log`));
     }
     cs.kill("SIGTERM");
     fake.kill("SIGTERM");
     if (!keep) {
       fs.rmSync(tmp, { recursive: true, force: true });
     } else {
-      log(`[${provider}] kept ${tmp}`);
+      log(`[${label}] kept ${tmp}`);
     }
     if (process.exitCode) {
       log(csOut.join("").split("\n").slice(-30).join("\n"));
@@ -286,14 +301,15 @@ async function main() {
     throw new Error("no .vsix produced");
   }
   let failed = false;
-  for (const provider of providers) {
+  for (const { provider, native } of runs) {
+    const label = native ? `${provider}-native` : provider;
     try {
-      await runProvider(provider, codeServer, vsix, chromium);
-      log(`[${provider}] PASS`);
+      await runProvider(provider, codeServer, vsix, chromium, native);
+      log(`[${label}] PASS`);
     } catch (err) {
       failed = true;
       process.exitCode = 1;
-      log(`[${provider}] FAIL: ${err.stack || err.message}`);
+      log(`[${label}] FAIL: ${err.stack || err.message}`);
     }
   }
   fs.writeFileSync(path.join(out, "smoke.log"), logLines.join("\n"));

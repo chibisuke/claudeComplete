@@ -5,6 +5,7 @@ import { collectStream, LLMError } from "../llm/types";
 import { hashKey, LRUCache } from "./cache";
 import { buildCursorWindow } from "./contextBuilder";
 import { postprocessCompletion } from "./postprocess";
+import { toNativeInlineEditItem, type NativeEditStore } from "../edit/nativeInlineEdit";
 
 function delay(ms: number, token: vscode.CancellationToken): Promise<boolean> {
   if (ms <= 0) {
@@ -26,7 +27,19 @@ export class ClaudeInlineCompletionProvider implements vscode.InlineCompletionIt
   private readonly cache = new LRUCache<string>(100);
   private inFlight = 0;
 
-  constructor(private readonly service: CompletionService) {}
+  constructor(
+    private readonly service: CompletionService,
+    private readonly nativeEdits: NativeEditStore,
+  ) {}
+
+  /** Proposed-API hook (inlineCompletionsAdditions): called when an item is no longer shown. */
+  handleEndOfLifetime(_item: vscode.InlineCompletionItem, reason: { kind: number }): void {
+    // 0 = Accepted (handled by the item command), 1 = Rejected, 2 = Ignored.
+    if (reason.kind === 1 && this.nativeEdits.get()) {
+      this.nativeEdits.clear();
+      void vscode.commands.executeCommand("setContext", "claudeComplete.nativeEdit", false);
+    }
+  }
 
   clearCache(): void {
     this.cache.clear();
@@ -39,6 +52,13 @@ export class ClaudeInlineCompletionProvider implements vscode.InlineCompletionIt
     token: vscode.CancellationToken,
   ): Promise<vscode.InlineCompletionItem[] | undefined> {
     const cfg = this.service.config;
+    const nativeEdit = this.nativeEdits.get();
+    if (nativeEdit) {
+      // A pending edit suggestion takes over the inline-suggest slot (native Copilot-style UI).
+      return nativeEdit.uri === document.uri.toString()
+        ? [toNativeInlineEditItem(nativeEdit)]
+        : undefined;
+    }
     if (!cfg.enabled || cfg.disabledLanguages.includes(document.languageId)) {
       return undefined;
     }

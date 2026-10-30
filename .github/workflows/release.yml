@@ -46,7 +46,7 @@ jobs:
         if: ${{ env.VSCE_PAT != '' }}
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx vsce publish --no-dependencies --packagePath *.vsix
+        run: npx vsce publish --no-dependencies --allow-proposed-apis inlineCompletionsAdditions --packagePath *.vsix
       - name: Publish to Open VSX (optional)
         if: ${{ env.OVSX_PAT != '' }}
         env:

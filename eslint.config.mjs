@@ -2,7 +2,15 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["dist/**", "out/**", "node_modules/**", "*.mjs", "*.vsix"],
+    ignores: [
+      "dist/**",
+      "out/**",
+      "node_modules/**",
+      "*.mjs",
+      "*.vsix",
+      "src/types/**",
+      "test/smoke/**",
+    ],
   },
   ...tseslint.configs.recommended,
   {

@@ -3,16 +3,19 @@ import { renderTemplate } from "../prompts/template";
 import type { CompletionService } from "../service";
 import { collectStream } from "../llm/types";
 import { stripCodeFence } from "../completion/postprocess";
-import { buildMergedDiff } from "./diffPreview";
+import { buildEditPreview, type EditPreview } from "./editPreview";
+import { isNativeInlineEditAvailable, NativeEditStore } from "./nativeInlineEdit";
 
-const CONTEXT_KEY = "claudeComplete.editPending";
+const CONTEXT_PENDING = "claudeComplete.editPending";
+const CONTEXT_NATIVE = "claudeComplete.nativeEdit";
 
-interface PendingEdit {
+interface PendingDecoratedEdit {
   editor: vscode.TextEditor;
   documentVersion: number;
   startLine: number;
-  removed: vscode.Range[];
-  added: vscode.Range[];
+  regionLineCount: number;
+  oldText: string;
+  newText: string;
 }
 
 /** Expands a selection to whole lines; falls back to the current line when empty. */
@@ -47,24 +50,68 @@ export function alignIndentation(original: string, replacement: string): string 
     .join("\n");
 }
 
+/** Builds the hover shown on the gutter marker: clickable Accept/Reject plus the proposed code. */
+export function buildGutterHover(newText: string, languageId: string): vscode.MarkdownString {
+  const md = new vscode.MarkdownString(undefined, true);
+  md.isTrusted = { enabledCommands: ["claudeComplete.acceptEdit", "claudeComplete.rejectEdit"] };
+  md.appendMarkdown(
+    "**ClaudeComplete edit suggestion** &nbsp; " +
+      '[$(check) Accept](command:claudeComplete.acceptEdit "Accept (Tab)") &nbsp;·&nbsp; ' +
+      '[$(close) Reject](command:claudeComplete.rejectEdit "Reject (Esc)")\n\n',
+  );
+  md.appendCodeblock(newText, languageId);
+  return md;
+}
+
 export class EditController implements vscode.Disposable, vscode.CodeLensProvider {
-  private pending: PendingEdit | undefined;
-  private readonly removedDecoration: vscode.TextEditorDecorationType;
-  private readonly addedDecoration: vscode.TextEditorDecorationType;
+  private pending: PendingDecoratedEdit | undefined;
+  private readonly addedLine: vscode.TextEditorDecorationType;
+  private readonly removedLine: vscode.TextEditorDecorationType;
+  private readonly removedWord: vscode.TextEditorDecorationType;
+  private readonly insertedWord: vscode.TextEditorDecorationType;
+  private readonly gutter: vscode.TextEditorDecorationType;
   private readonly lensEmitter = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this.lensEmitter.event;
   private readonly disposables: vscode.Disposable[] = [];
 
-  constructor(private readonly service: CompletionService) {
-    this.removedDecoration = vscode.window.createTextEditorDecorationType({
+  constructor(
+    private readonly service: CompletionService,
+    readonly nativeStore: NativeEditStore,
+    extensionUri: vscode.Uri,
+  ) {
+    this.addedLine = vscode.window.createTextEditorDecorationType({
+      isWholeLine: true,
+      backgroundColor: new vscode.ThemeColor("diffEditor.insertedLineBackground"),
+      overviewRulerColor: new vscode.ThemeColor("editorOverviewRuler.addedForeground"),
+      overviewRulerLane: vscode.OverviewRulerLane.Left,
+    });
+    this.removedLine = vscode.window.createTextEditorDecorationType({
       isWholeLine: true,
       backgroundColor: new vscode.ThemeColor("diffEditor.removedLineBackground"),
       textDecoration: "line-through",
-      opacity: "0.7",
+      opacity: "0.75",
+      overviewRulerColor: new vscode.ThemeColor("editorOverviewRuler.deletedForeground"),
+      overviewRulerLane: vscode.OverviewRulerLane.Left,
     });
-    this.addedDecoration = vscode.window.createTextEditorDecorationType({
-      isWholeLine: true,
-      backgroundColor: new vscode.ThemeColor("diffEditor.insertedLineBackground"),
+    this.removedWord = vscode.window.createTextEditorDecorationType({
+      backgroundColor: new vscode.ThemeColor("diffEditor.removedTextBackground"),
+      borderRadius: "3px",
+      overviewRulerColor: new vscode.ThemeColor("editorOverviewRuler.modifiedForeground"),
+      overviewRulerLane: vscode.OverviewRulerLane.Left,
+    });
+    this.insertedWord = vscode.window.createTextEditorDecorationType({
+      // contentText is supplied per decoration via renderOptions.
+      before: {
+        backgroundColor: new vscode.ThemeColor("diffEditor.insertedTextBackground"),
+        border: "1px solid",
+        borderColor: new vscode.ThemeColor("diffEditor.insertedTextBorder"),
+        margin: "0 0 0 0.4em",
+        color: new vscode.ThemeColor("editor.foreground"),
+      },
+    });
+    this.gutter = vscode.window.createTextEditorDecorationType({
+      gutterIconPath: vscode.Uri.joinPath(extensionUri, "media", "edit-arrow.svg"),
+      gutterIconSize: "contain",
     });
     this.disposables.push(
       vscode.languages.registerCodeLensProvider({ scheme: "*" }, this),
@@ -75,10 +122,34 @@ export class EditController implements vscode.Disposable, vscode.CodeLensProvide
             "Edit suggestion abandoned because the document changed. Use Undo to restore.",
           );
         }
+        const native = this.nativeStore.get();
+        if (native && e.document.uri.toString() === native.uri) {
+          // Any change (including the accept itself) ends the native suggestion.
+          this.nativeStore.clear();
+        }
       }),
-      vscode.window.onDidChangeActiveTextEditor(() => this.lensEmitter.fire()),
+      vscode.window.onDidChangeActiveTextEditor(() => {
+        this.lensEmitter.fire();
+        this.nativeStore.clear();
+      }),
     );
-    void vscode.commands.executeCommand("setContext", CONTEXT_KEY, false);
+    void vscode.commands.executeCommand("setContext", CONTEXT_PENDING, false);
+    void vscode.commands.executeCommand("setContext", CONTEXT_NATIVE, false);
+  }
+
+  /** Whether the editor's native inline-edit UI is used for the next suggestion. */
+  useNative(): boolean {
+    const mode = this.service.config.edit.presentation;
+    if (mode === "inline-decorations") {
+      return false;
+    }
+    const available = isNativeInlineEditAvailable();
+    if (mode === "native" && !available) {
+      this.service.log.warn(
+        "edit.presentation is 'native' but the inlineCompletionsAdditions proposal is not enabled; falling back to decorations.",
+      );
+    }
+    return available;
   }
 
   provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
@@ -213,44 +284,89 @@ export class EditController implements vscode.Disposable, vscode.CodeLensProvide
       return;
     }
     const replacement = alignIndentation(selection, stripCodeFence(raw).replace(/\s+$/, ""));
-    const merged = buildMergedDiff(selection, replacement);
-    if (!merged.changed) {
+    const preview = buildEditPreview(selection, replacement);
+    if (!preview.changed) {
       void vscode.window.showInformationMessage("ClaudeComplete: the model suggested no change.");
       return;
     }
-    await this.showPreview(editor, range, merged);
+    if (this.useNative()) {
+      await this.showNative(editor, range, preview.newText);
+    } else {
+      await this.showDecorated(editor, range, preview);
+    }
   }
 
-  private async showPreview(
+  /** Native path: hand the edit to VS Code's inline-edit renderer through the completion provider. */
+  private async showNative(
     editor: vscode.TextEditor,
     range: vscode.Range,
-    merged: ReturnType<typeof buildMergedDiff>,
+    newText: string,
   ): Promise<void> {
-    const ok = await editor.edit((b) => b.replace(range, merged.text), {
+    this.nativeStore.set({
+      uri: editor.document.uri.toString(),
+      range,
+      newText,
+      createdAt: Date.now(),
+    });
+    await vscode.commands.executeCommand("setContext", CONTEXT_NATIVE, true);
+    // Put the cursor on the edit so the inline edit is shown right away, then ask for it.
+    editor.selection = new vscode.Selection(range.start, range.start);
+    await vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
+    this.service.log.info(`edit: native inline edit offered at line ${range.start.line + 1}`);
+  }
+
+  /** Fallback path: decorations in the editor, document only extended by purely new lines. */
+  private async showDecorated(
+    editor: vscode.TextEditor,
+    range: vscode.Range,
+    preview: EditPreview,
+  ): Promise<void> {
+    const ok = await editor.edit((b) => b.replace(range, preview.regionText), {
       undoStopBefore: true,
       undoStopAfter: false,
     });
     if (!ok) {
       return;
     }
+    const doc = editor.document;
     const base = range.start.line;
-    const toRange = (r: { start: number; end: number }) =>
-      new vscode.Range(
-        base + r.start,
-        0,
-        base + r.end - 1,
-        editor.document.lineAt(base + r.end - 1).text.length,
-      );
+    const lineRange = (offset: number) =>
+      new vscode.Range(base + offset, 0, base + offset, doc.lineAt(base + offset).text.length);
+
     this.pending = {
       editor,
-      documentVersion: editor.document.version,
+      documentVersion: doc.version,
       startLine: base,
-      removed: merged.removed.map(toRange),
-      added: merged.added.map(toRange),
+      regionLineCount: preview.regionText.split("\n").length,
+      oldText: preview.oldText,
+      newText: preview.newText,
     };
-    editor.setDecorations(this.removedDecoration, this.pending.removed);
-    editor.setDecorations(this.addedDecoration, this.pending.added);
-    await vscode.commands.executeCommand("setContext", CONTEXT_KEY, true);
+
+    editor.setDecorations(this.addedLine, preview.addedLines.map(lineRange));
+    editor.setDecorations(this.removedLine, preview.removedLines.map(lineRange));
+    const removedWords: vscode.Range[] = [];
+    const insertedWords: vscode.DecorationOptions[] = [];
+    for (const m of preview.modified) {
+      const line = base + m.line;
+      for (const r of m.removed) {
+        removedWords.push(new vscode.Range(line, r.start, line, r.end));
+      }
+      for (const ins of m.inserted) {
+        insertedWords.push({
+          range: new vscode.Range(line, ins.col, line, ins.col),
+          renderOptions: { before: { contentText: ins.text.replace(/ /g, " ") } },
+        });
+      }
+    }
+    editor.setDecorations(this.removedWord, removedWords);
+    editor.setDecorations(this.insertedWord, insertedWords);
+    editor.setDecorations(this.gutter, [
+      {
+        range: lineRange(preview.firstChangedLine),
+        hoverMessage: buildGutterHover(preview.newText, doc.languageId),
+      },
+    ]);
+    await vscode.commands.executeCommand("setContext", CONTEXT_PENDING, true);
     this.lensEmitter.fire();
   }
 
@@ -259,7 +375,33 @@ export class EditController implements vscode.Disposable, vscode.CodeLensProvide
   }
 
   async reject(): Promise<void> {
+    if (this.nativeStore.get()) {
+      this.nativeStore.clear();
+      await vscode.commands.executeCommand("editor.action.inlineSuggest.hide");
+      await vscode.commands.executeCommand("setContext", CONTEXT_NATIVE, false);
+      return;
+    }
     await this.resolve("reject");
+  }
+
+  /** Called through the item command when VS Code applied a native inline edit. */
+  async nativeAccepted(): Promise<void> {
+    this.nativeStore.clear();
+    this.service.stats.completionsAccepted++;
+    this.service.statusBar.refresh();
+    await vscode.commands.executeCommand("setContext", CONTEXT_NATIVE, false);
+  }
+
+  private clearDecorations(editor: vscode.TextEditor): void {
+    for (const d of [
+      this.addedLine,
+      this.removedLine,
+      this.removedWord,
+      this.insertedWord,
+      this.gutter,
+    ]) {
+      editor.setDecorations(d, []);
+    }
   }
 
   private async resolve(mode: "accept" | "reject"): Promise<void> {
@@ -269,36 +411,20 @@ export class EditController implements vscode.Disposable, vscode.CodeLensProvide
     }
     this.pending = undefined;
     const doc = p.editor.document;
-    const toDelete = (mode === "accept" ? p.removed : p.added)
-      .slice()
-      .sort((a, b) => b.start.line - a.start.line);
-    p.editor.setDecorations(this.removedDecoration, []);
-    p.editor.setDecorations(this.addedDecoration, []);
+    this.clearDecorations(p.editor);
     if (doc.version === p.documentVersion) {
-      await p.editor.edit(
-        (b) => {
-          for (const r of toDelete) {
-            const deleteRange =
-              r.end.line + 1 < doc.lineCount
-                ? new vscode.Range(r.start.line, 0, r.end.line + 1, 0)
-                : r.start.line > 0
-                  ? new vscode.Range(
-                      r.start.line - 1,
-                      doc.lineAt(r.start.line - 1).text.length,
-                      r.end.line,
-                      r.end.character,
-                    )
-                  : new vscode.Range(r.start.line, 0, r.end.line, r.end.character);
-            b.delete(deleteRange);
-          }
-        },
-        { undoStopBefore: false, undoStopAfter: true },
-      );
+      const lastLine = p.startLine + p.regionLineCount - 1;
+      const region = new vscode.Range(p.startLine, 0, lastLine, doc.lineAt(lastLine).text.length);
+      await p.editor.edit((b) => b.replace(region, mode === "accept" ? p.newText : p.oldText), {
+        undoStopBefore: false,
+        undoStopAfter: true,
+      });
       if (mode === "accept") {
         this.service.stats.completionsAccepted++;
+        this.service.statusBar.refresh();
       }
     }
-    await vscode.commands.executeCommand("setContext", CONTEXT_KEY, false);
+    await vscode.commands.executeCommand("setContext", CONTEXT_PENDING, false);
     this.lensEmitter.fire();
   }
 
@@ -308,17 +434,23 @@ export class EditController implements vscode.Disposable, vscode.CodeLensProvide
       return;
     }
     this.pending = undefined;
-    p.editor.setDecorations(this.removedDecoration, []);
-    p.editor.setDecorations(this.addedDecoration, []);
-    void vscode.commands.executeCommand("setContext", CONTEXT_KEY, false);
+    this.clearDecorations(p.editor);
+    void vscode.commands.executeCommand("setContext", CONTEXT_PENDING, false);
     this.lensEmitter.fire();
     void vscode.window.showWarningMessage(`ClaudeComplete: ${message}`);
   }
 
   dispose(): void {
     this.pending = undefined;
-    this.removedDecoration.dispose();
-    this.addedDecoration.dispose();
+    for (const d of [
+      this.addedLine,
+      this.removedLine,
+      this.removedWord,
+      this.insertedWord,
+      this.gutter,
+    ]) {
+      d.dispose();
+    }
     this.lensEmitter.dispose();
     for (const d of this.disposables) {
       d.dispose();

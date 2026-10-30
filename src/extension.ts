@@ -2,18 +2,21 @@ import * as vscode from "vscode";
 import { ClaudeInlineCompletionProvider } from "./completion/inlineProvider";
 import { onConfigChanged, resetPrompts, SECTION } from "./config";
 import { EditController } from "./edit/editCommand";
+import { isNativeInlineEditAvailable, NativeEditStore } from "./edit/nativeInlineEdit";
 import { SecretStore } from "./secrets";
 import { CompletionService } from "./service";
 
 export function activate(context: vscode.ExtensionContext): void {
   const secrets = new SecretStore(context.secrets);
   const service = new CompletionService(secrets);
-  const inline = new ClaudeInlineCompletionProvider(service);
-  const edits = new EditController(service);
+  const nativeEdits = new NativeEditStore();
+  const inline = new ClaudeInlineCompletionProvider(service, nativeEdits);
+  const edits = new EditController(service, nativeEdits, context.extensionUri);
 
   context.subscriptions.push(
     service,
     edits,
+    nativeEdits,
     vscode.languages.registerInlineCompletionItemProvider({ pattern: "**" }, inline),
     onConfigChanged(() => {
       inline.clearCache();
@@ -42,6 +45,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("claudeComplete.editSelection", () => edits.editSelection()),
     vscode.commands.registerCommand("claudeComplete.acceptEdit", () => edits.accept()),
     vscode.commands.registerCommand("claudeComplete.rejectEdit", () => edits.reject()),
+    vscode.commands.registerCommand("claudeComplete.editAccepted", () => edits.nativeAccepted()),
     vscode.commands.registerCommand("claudeComplete.showLogs", () => service.log.show()),
     vscode.commands.registerCommand("claudeComplete.resetPrompts", async () => {
       await resetPrompts();
@@ -61,7 +65,15 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  service.log.info("ClaudeComplete activated.");
+  service.log.info(
+    `ClaudeComplete activated. Native inline edits: ${isNativeInlineEditAvailable() ? "available" : "not enabled"} (enabledApiProposals=${JSON.stringify(
+      (
+        vscode.extensions.getExtension("chibisuke.claudecomplete")?.packageJSON as {
+          enabledApiProposals?: unknown;
+        }
+      )?.enabledApiProposals ?? null,
+    )}).`,
+  );
 }
 
 export function deactivate(): void {

@@ -30,7 +30,16 @@ async function runCommand(page, title) {
   await input.press("Enter");
 }
 
-export async function runScenario({ chromium, url, workspace, provider, shots, log }) {
+export async function runScenario({
+  chromium,
+  url,
+  workspace,
+  provider,
+  native = false,
+  label = provider,
+  shots,
+  log,
+}) {
   const demo = path.join(workspace, "demo.ts");
   fs.writeFileSync(demo, "// smoke test\n");
   const browser = await chromium.launch();
@@ -38,7 +47,7 @@ export async function runScenario({ chromium, url, workspace, provider, shots, l
   const page = await context.newPage();
   page.on("pageerror", (e) => log(`[pageerror] ${e.message}`));
   const shot = async (name) => {
-    await page.screenshot({ path: path.join(shots, `${provider}-${name}.png`) });
+    await page.screenshot({ path: path.join(shots, `${label}-${name}.png`) });
   };
   try {
     await page.goto(`${url}/?folder=${encodeURIComponent(workspace)}`, {
@@ -98,7 +107,7 @@ export async function runScenario({ chromium, url, workspace, provider, shots, l
     await waitFor(() => fs.readFileSync(demo, "utf8").includes("return a + b;"), {
       label: "accepted completion on disk",
     });
-    log(`[${provider}] inline completion accepted: ok`);
+    log(`[${label}] inline completion accepted: ok`);
 
     // --- Edit suggestion ---
     await page.keyboard.press("Control+End");
@@ -114,14 +123,56 @@ export async function runScenario({ chromium, url, workspace, provider, shots, l
     await instr.waitFor({ state: "visible", timeout: 10000 });
     await instr.fill("say hello world instead");
     await instr.press("Enter");
-    await page
-      .locator(".codelens-decoration", { hasText: "Accept" })
-      .first()
-      .waitFor({ timeout: 20000 });
-    await sleep(500);
-    await shot("02-edit-diff");
-    await editor.click();
-    await page.keyboard.press("Tab");
+    if (native) {
+      // VS Code's own inline-edit widget (the Copilot look).
+      // The proposed text is rendered by the editor widget, not part of the document yet.
+      await waitFor(
+        () =>
+          page.evaluate(() => {
+            // The inline-edit widget may render its text inside SVG, which innerText skips.
+            const haystack =
+              (document.body.textContent || "") +
+              " " +
+              Array.from(document.querySelectorAll("svg text"))
+                .map((t) => t.textContent)
+                .join(" ");
+            return haystack.includes("hello world") || haystack.includes("hello");
+          }),
+        { timeout: 20000, label: "native inline edit widget" },
+      );
+      if (fs.readFileSync(demo, "utf8").includes("hello world")) {
+        throw new Error("document should not contain the new text before accepting");
+      }
+      await sleep(800);
+      await shot("02-edit-native");
+      const gutter = await page
+        .locator("[class*='inline-edits-view-gutter-indicator'], [class*='gutter-indicator']")
+        .count();
+      log(`[${label}] native inline edit widget visible, gutter indicator elements: ${gutter}`);
+      await page.keyboard.press("Tab");
+    } else {
+      await page
+        .locator(".codelens-decoration", { hasText: "Accept" })
+        .first()
+        .waitFor({ timeout: 20000 });
+      await sleep(500);
+      // Decorated preview: the old line stays, the new words are shown as decorations.
+      const lines = await page.locator(".view-line").allInnerTexts();
+      const greetingLines = lines.filter((l) => l.includes("greeting"));
+      if (greetingLines.length !== 1) {
+        throw new Error(
+          `expected exactly one greeting line in the preview, got ${JSON.stringify(greetingLines)}`,
+        );
+      }
+      if (fs.readFileSync(demo, "utf8").includes("hello world")) {
+        throw new Error("document should not contain the new text before accepting");
+      }
+      await shot("02-edit-preview");
+      await page.locator(".view-line", { hasText: "greeting" }).first().hover();
+      await sleep(400);
+      await editor.click();
+      await page.keyboard.press("Tab");
+    }
     await sleep(300);
     await page.keyboard.press("Control+S");
     await waitFor(
@@ -132,8 +183,8 @@ export async function runScenario({ chromium, url, workspace, provider, shots, l
       { label: "accepted edit on disk" },
     );
     await shot("03-after-accept");
-    log(`[${provider}] edit suggestion accepted: ok`);
-    log(`[${provider}] final demo.ts:\n${fs.readFileSync(demo, "utf8")}`);
+    log(`[${label}] edit suggestion accepted: ok`);
+    log(`[${label}] final demo.ts:\n${fs.readFileSync(demo, "utf8")}`);
   } catch (err) {
     await shot("fail").catch(() => undefined);
     throw err;

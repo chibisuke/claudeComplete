@@ -2,7 +2,7 @@
   "name": "claudecomplete",
   "displayName": "ClaudeComplete",
   "description": "Inline code completions and AI edit suggestions powered by the Claude API (or any OpenAI-compatible API).",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "chibisuke",
   "license": "MIT",
   "repository": {
@@ -69,6 +69,10 @@
       {
         "command": "claudeComplete.refreshContext",
         "title": "ClaudeComplete: Refresh Cached Context Snapshot"
+      },
+      {
+        "command": "claudeComplete.editAccepted",
+        "title": "ClaudeComplete: (internal) edit accepted"
       }
     ],
     "keybindings": [
@@ -81,12 +85,12 @@
       {
         "command": "claudeComplete.acceptEdit",
         "key": "tab",
-        "when": "editorTextFocus && claudeComplete.editPending"
+        "when": "editorTextFocus && claudeComplete.editPending && !claudeComplete.nativeEdit"
       },
       {
         "command": "claudeComplete.rejectEdit",
         "key": "escape",
-        "when": "editorTextFocus && claudeComplete.editPending"
+        "when": "editorTextFocus && claudeComplete.editPending && !claudeComplete.nativeEdit"
       }
     ],
     "menus": {
@@ -105,6 +109,10 @@
         {
           "command": "claudeComplete.rejectEdit",
           "when": "claudeComplete.editPending"
+        },
+        {
+          "command": "claudeComplete.editAccepted",
+          "when": "false"
         }
       ]
     },
@@ -226,6 +234,21 @@
           "default": "medium",
           "description": "Reasoning effort for Claude models on edits (Anthropic provider only)."
         },
+        "claudeComplete.edit.presentation": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "native",
+            "inline-decorations"
+          ],
+          "default": "auto",
+          "enumDescriptions": [
+            "Use VS Code's native inline-edit UI (floating diff, gutter menu - the Copilot look) when the 'inlineCompletionsAdditions' API proposal is enabled for this extension, otherwise fall back to in-editor decorations.",
+            "Always use the native inline-edit UI (requires the API proposal, see README).",
+            "Always render the suggestion with decorations: changed words highlighted in place, new lines green, gutter marker with Accept/Reject hover menu."
+          ],
+          "markdownDescription": "How edit suggestions are presented. The native UI needs `--enable-proposed-api chibisuke.claudecomplete` or `\"enable-proposed-api\": [\"chibisuke.claudecomplete\"]` in `argv.json` (see README)."
+        },
         "claudeComplete.edit.systemPrompt": {
           "type": "string",
           "default": "",
@@ -332,5 +355,8 @@
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.5"
-  }
+  },
+  "enabledApiProposals": [
+    "inlineCompletionsAdditions"
+  ]
 }

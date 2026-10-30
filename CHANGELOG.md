@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-30
+
+### Changed
+
+- Edit suggestions now use VS Code's native inline-edit UI (the Copilot look: floating diff next to the line, gutter marker with Accept/Reject menu, Tab/Esc) when the `inlineCompletionsAdditions` API proposal is enabled for the extension. See README for how to enable it.
+- Without the proposal, the fallback shows changes in place: replaced words highlighted red with the new words next to them, new lines green, removed lines red, a gutter marker whose hover offers clickable Accept/Reject and shows the full proposed code. Accept/reject replace the region in one undo step.
+- New setting `claudeComplete.edit.presentation` (`auto` | `native` | `inline-decorations`).
+
+### Added
+
+- Smoke test runs a third scenario with the proposal enabled and verifies the native widget.
+
 ## [0.1.1] - 2026-10-30
 
 ### Fixed

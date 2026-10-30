@@ -30,6 +30,7 @@ export interface ClaudeCompleteConfig {
     model: string;
     maxTokens: number;
     effort: Effort;
+    presentation: "auto" | "native" | "inline-decorations";
     systemPrompt: string;
     promptTemplate: string;
   };
@@ -81,6 +82,7 @@ export function readConfig(scope?: vscode.ConfigurationScope): ClaudeCompleteCon
       model: c.get<string>("edit.model", "claude-sonnet-5-5"),
       maxTokens: c.get<number>("edit.maxTokens", 4096),
       effort: c.get<Effort>("edit.effort", "medium"),
+      presentation: c.get<"auto" | "native" | "inline-decorations">("edit.presentation", "auto"),
       systemPrompt: orDefault(c.get<string>("edit.systemPrompt"), DEFAULT_EDIT_SYSTEM_PROMPT),
       promptTemplate: orDefault(c.get<string>("edit.promptTemplate"), DEFAULT_EDIT_TEMPLATE),
     },

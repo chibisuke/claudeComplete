@@ -39,6 +39,27 @@ Download the latest `.vsix` from the
 If the server needs a key (OpenRouter, vLLM with auth, ...), run **ClaudeComplete: Set API Key**
 while the provider is set to `openai-compatible`.
 
+## Edit suggestions
+
+Select code (or just place the cursor on a line), press `Ctrl+Shift+I` and describe the change.
+The suggestion is shown without touching your file until you accept it:
+
+- **Native mode** (the Copilot look): VS Code renders the edit itself, as a small floating diff next
+  to the line (old text red, new text green) with an arrow marker at the line number that opens an
+  Accept/Reject menu. `Tab` accepts, `Esc` dismisses. This uses the `inlineCompletionsAdditions` API
+  proposal, which VS Code only grants to extensions you explicitly allow. Enable it once:
+  - **Preferences: Configure Runtime Arguments** (`argv.json`) and add
+    `"enable-proposed-api": ["chibisuke.claudecomplete"]`, then restart VS Code, or
+  - start VS Code with `code --enable-proposed-api chibisuke.claudecomplete`.
+    code-server and other OSS builds allow proposals by default. Check the **ClaudeComplete** output
+    channel: the activation line reports whether native inline edits are available.
+- **Fallback mode** (no setup): changed words are highlighted in place (old red, new green next to
+  it), new lines appear green, removed lines red. A green arrow in the gutter marks the first change;
+  hovering it shows the full proposed code with clickable Accept / Reject. `Tab` accepts, `Esc`
+  rejects, both as a single undo step.
+
+`claudeComplete.edit.presentation` selects the mode (`auto` by default).
+
 ## Settings
 
 | Setting                                                  | Default                               | Description                                                                                      |
@@ -126,8 +147,8 @@ Press `F5` in VS Code to launch the Extension Development Host.
 
 `npm run test:smoke` packages the extension, installs it into a temporary
 [code-server](https://github.com/coder/code-server) instance and drives the UI with Playwright:
-it types code, waits for ghost text, accepts it with `Tab`, runs an edit suggestion and accepts the
-inline diff. A local fake API server answers both the Claude and the OpenAI protocol, so no API key
+it types code, waits for ghost text, accepts it with `Tab`, runs an edit suggestion and accepts it,
+once in fallback mode and once with the API proposal enabled (native inline-edit widget). A local fake API server answers both the Claude and the OpenAI protocol, so no API key
 is needed, and the test asserts that the cached prompt prefix (system prompt + snapshot with
 `cache_control`) is byte-identical across requests.
 
