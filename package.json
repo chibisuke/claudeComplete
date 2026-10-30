@@ -2,7 +2,7 @@
   "name": "claudecomplete",
   "displayName": "ClaudeComplete",
   "description": "Inline code completions and AI edit suggestions powered by the Claude API (or any OpenAI-compatible API).",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "chibisuke",
   "license": "MIT",
   "repository": {
@@ -311,7 +311,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && tsc -p test/e2e/tsconfig.json && node ./out/test/e2e/runTests.js",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies",
+    "test:smoke": "node test/smoke/run-smoke.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",

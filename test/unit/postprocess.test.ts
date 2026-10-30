@@ -70,6 +70,28 @@ describe("postprocessCompletion", () => {
       }),
     ).toBe("x + 1");
   });
+  it("keeps one leading line break after code at the end of a line", () => {
+    expect(
+      postprocessCompletion({
+        raw: "\n  return a + b;\n}",
+        linePrefix: "function add(a: number, b: number): number {",
+        lineSuffix: "",
+        nextLine: "",
+        multiline: "auto",
+      }),
+    ).toBe("\n  return a + b;\n}");
+  });
+  it("drops leading blank lines on a fresh line", () => {
+    expect(
+      postprocessCompletion({
+        raw: "\n\n  foo();",
+        linePrefix: "  ",
+        lineSuffix: "",
+        nextLine: "",
+        multiline: "auto",
+      }),
+    ).toBe("  foo();");
+  });
   it("honours multiline=never", () => {
     expect(
       postprocessCompletion({

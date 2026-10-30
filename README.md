@@ -122,6 +122,19 @@ npm run package      # produce the .vsix
 
 Press `F5` in VS Code to launch the Extension Development Host.
 
+### Smoke test in a real editor
+
+`npm run test:smoke` packages the extension, installs it into a temporary
+[code-server](https://github.com/coder/code-server) instance and drives the UI with Playwright:
+it types code, waits for ghost text, accepts it with `Tab`, runs an edit suggestion and accepts the
+inline diff. A local fake API server answers both the Claude and the OpenAI protocol, so no API key
+is needed, and the test asserts that the cached prompt prefix (system prompt + snapshot with
+`cache_control`) is byte-identical across requests.
+
+Requirements: a code-server release extracted somewhere (`CODE_SERVER_DIR=/path/to/code-server-x.y.z-linux-amd64`)
+and Playwright with Chromium (`npx playwright install chromium`). Screenshots and request logs land in
+`$SMOKE_OUT` (default: a `claudecomplete-smoke` folder in the system temp directory).
+
 ## Releasing
 
 Releases are cut from `master`:

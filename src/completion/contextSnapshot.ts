@@ -26,7 +26,8 @@ export function buildFileSnapshot(
 ): { text: string; coveredStart: number; coveredEnd: number } {
   const full = lines.join("\n");
   if (full.length <= maxChars) {
-    return { text: full, coveredStart: 0, coveredEnd: lines.length };
+    // Whole file included: any cursor position (including lines appended later) is covered.
+    return { text: full, coveredStart: 0, coveredEnd: Number.POSITIVE_INFINITY };
   }
   // Keep the file head (imports, declarations) and a window around the cursor.
   const headBudget = Math.floor(maxChars * 0.2);

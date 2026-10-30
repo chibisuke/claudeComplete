@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-30
+
+### Fixed
+
+- Inline completions that start with a line break (e.g. a function body after `{`) kept the break instead of being glued onto the current line.
+- Full-file context snapshots were rebuilt on every request once the cursor moved below the last line captured, defeating prompt caching. A full-file snapshot now stays valid until save, drift or age limits trigger a refresh.
+
+### Added
+
+- `npm run test:smoke`: end-to-end smoke test that installs the packaged extension into a throw-away code-server, drives it with Playwright against a local fake Claude/OpenAI API and asserts the cached prompt layout.
+
 ## [0.1.0] - 2026-10-30
 
 ### Added

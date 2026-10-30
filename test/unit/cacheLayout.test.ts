@@ -72,7 +72,8 @@ describe("buildFileSnapshot", () => {
     const s = buildFileSnapshot(lines.slice(0, 10), 3, 100_000);
     expect(s.text).toBe(lines.slice(0, 10).join("\n"));
     expect(s.coveredStart).toBe(0);
-    expect(s.coveredEnd).toBe(10);
+    // A full-file snapshot stays valid when lines are appended below the old end.
+    expect(s.coveredEnd).toBe(Number.POSITIVE_INFINITY);
   });
   it("keeps the head and a window around the cursor when trimming", () => {
     const s = buildFileSnapshot(lines, 300, 5000);

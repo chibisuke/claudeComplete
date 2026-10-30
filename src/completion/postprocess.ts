@@ -64,9 +64,17 @@ export function trimSuffixOverlap(text: string, lineSuffix: string, nextLine: st
 export function postprocessCompletion(input: PostprocessInput): string | undefined {
   let text = stripCodeFence(input.raw);
   text = text.replace(/\r\n/g, "\n");
-  // Drop leading blank lines only; keep leading indentation of the first real line
-  // if the cursor is at a fresh line.
+  // Collapse leading blank lines. When the cursor sits after code on the current line and the
+  // model starts with a line break, keep exactly one so the continuation lands on a new line.
+  const startsWithBreak = /^[ \t]*\n/.test(text);
   text = text.replace(/^(\s*\n)+/, "");
+  if (
+    startsWithBreak &&
+    input.linePrefix.trim().length > 0 &&
+    input.lineSuffix.trim().length === 0
+  ) {
+    text = "\n" + text;
+  }
   text = stripRepeatedLinePrefix(text, input.linePrefix);
   text = trimSuffixOverlap(text, input.lineSuffix, input.nextLine);
 
