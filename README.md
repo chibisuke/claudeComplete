@@ -124,10 +124,14 @@ Press `F5` in VS Code to launch the Extension Development Host.
 
 ## Releasing
 
-1. Update `CHANGELOG.md` and bump the version: `npm version minor` (creates a commit and tag).
-2. `git push --follow-tags`.
+Releases are cut from `master`:
+
+1. Update `CHANGELOG.md` and bump the version: `npm version minor` (creates a commit and tag `vX.Y.Z`).
+2. `git push origin master --follow-tags`.
 3. The `Release` workflow builds the `.vsix`, attaches it to a GitHub release and, if the `VSCE_PAT`
    or `OVSX_PAT` repository secrets exist, publishes to the VS Code Marketplace / Open VSX.
+   The workflow can also be started manually from the Actions tab (`workflow_dispatch`); it then
+   releases the version in `package.json`.
 
 ## License
 
