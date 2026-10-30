@@ -1,0 +1,335 @@
+{
+  "name": "claudecomplete",
+  "displayName": "ClaudeComplete",
+  "description": "Inline code completions and AI edit suggestions powered by the Claude API (or any OpenAI-compatible API).",
+  "version": "0.1.0",
+  "publisher": "chibisuke",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chibisuke/claudecomplete.git"
+  },
+  "bugs": {
+    "url": "https://github.com/chibisuke/claudecomplete/issues"
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages",
+    "Machine Learning"
+  ],
+  "keywords": [
+    "claude",
+    "anthropic",
+    "copilot",
+    "completion",
+    "inline completion",
+    "ai"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "claudeComplete.setApiKey",
+        "title": "ClaudeComplete: Set API Key"
+      },
+      {
+        "command": "claudeComplete.clearApiKey",
+        "title": "ClaudeComplete: Clear API Key"
+      },
+      {
+        "command": "claudeComplete.toggle",
+        "title": "ClaudeComplete: Toggle Inline Completions"
+      },
+      {
+        "command": "claudeComplete.editSelection",
+        "title": "ClaudeComplete: Edit Selection with Instruction"
+      },
+      {
+        "command": "claudeComplete.acceptEdit",
+        "title": "ClaudeComplete: Accept Edit Suggestion"
+      },
+      {
+        "command": "claudeComplete.rejectEdit",
+        "title": "ClaudeComplete: Reject Edit Suggestion"
+      },
+      {
+        "command": "claudeComplete.showLogs",
+        "title": "ClaudeComplete: Show Logs"
+      },
+      {
+        "command": "claudeComplete.resetPrompts",
+        "title": "ClaudeComplete: Reset Prompts to Defaults"
+      },
+      {
+        "command": "claudeComplete.refreshContext",
+        "title": "ClaudeComplete: Refresh Cached Context Snapshot"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "claudeComplete.editSelection",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i",
+        "when": "editorTextFocus && !claudeComplete.editPending"
+      },
+      {
+        "command": "claudeComplete.acceptEdit",
+        "key": "tab",
+        "when": "editorTextFocus && claudeComplete.editPending"
+      },
+      {
+        "command": "claudeComplete.rejectEdit",
+        "key": "escape",
+        "when": "editorTextFocus && claudeComplete.editPending"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "claudeComplete.editSelection",
+          "group": "1_modification@1",
+          "when": "editorTextFocus"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "claudeComplete.acceptEdit",
+          "when": "claudeComplete.editPending"
+        },
+        {
+          "command": "claudeComplete.rejectEdit",
+          "when": "claudeComplete.editPending"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "ClaudeComplete",
+      "properties": {
+        "claudeComplete.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline completions."
+        },
+        "claudeComplete.provider": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "openai-compatible"
+          ],
+          "default": "anthropic",
+          "enumDescriptions": [
+            "Claude API via the official Anthropic SDK (supports prompt caching).",
+            "Any OpenAI-compatible /v1/chat/completions endpoint (Ollama, LM Studio, vLLM, OpenRouter, ...)."
+          ],
+          "description": "Which backend to use for completions and edits."
+        },
+        "claudeComplete.anthropic.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Optional base URL for the Claude API (proxy or gateway). Leave empty for the default."
+        },
+        "claudeComplete.openai.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434/v1",
+          "description": "Base URL of the OpenAI-compatible API (must contain the /v1 segment if the server expects it)."
+        },
+        "claudeComplete.completion.model": {
+          "type": "string",
+          "default": "claude-haiku-5-5",
+          "description": "Model used for inline completions."
+        },
+        "claudeComplete.completion.maxTokens": {
+          "type": "number",
+          "default": 256,
+          "minimum": 16,
+          "description": "Maximum tokens generated per inline completion."
+        },
+        "claudeComplete.completion.effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Reasoning effort for Claude models on completions (Anthropic provider only). Lower is faster and cheaper."
+        },
+        "claudeComplete.completion.debounceMs": {
+          "type": "number",
+          "default": 300,
+          "minimum": 0,
+          "description": "Wait this long after the last keystroke before requesting a completion."
+        },
+        "claudeComplete.completion.multiline": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "always",
+            "never"
+          ],
+          "default": "auto",
+          "description": "Allow multi-line completions. 'auto' allows them only when the cursor is at the end of a line."
+        },
+        "claudeComplete.completion.contextLinesBefore": {
+          "type": "number",
+          "default": 60,
+          "minimum": 1,
+          "description": "Lines before the cursor sent as the live prefix (the volatile part of the prompt)."
+        },
+        "claudeComplete.completion.contextLinesAfter": {
+          "type": "number",
+          "default": 20,
+          "minimum": 0,
+          "description": "Lines after the cursor sent as the live suffix."
+        },
+        "claudeComplete.completion.includeOpenTabs": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include snippets from other open editors in the cached context snapshot."
+        },
+        "claudeComplete.completion.systemPrompt": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "System prompt for inline completions. Leave empty to use the built-in default (see README)."
+        },
+        "claudeComplete.completion.promptTemplate": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "Prompt template for inline completions. Placeholders: {prefix}, {suffix}, {language}, {filename}. Leave empty to use the built-in default."
+        },
+        "claudeComplete.edit.model": {
+          "type": "string",
+          "default": "claude-sonnet-5-5",
+          "description": "Model used for edit suggestions."
+        },
+        "claudeComplete.edit.maxTokens": {
+          "type": "number",
+          "default": 4096,
+          "minimum": 64,
+          "description": "Maximum tokens generated per edit suggestion."
+        },
+        "claudeComplete.edit.effort": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "medium",
+          "description": "Reasoning effort for Claude models on edits (Anthropic provider only)."
+        },
+        "claudeComplete.edit.systemPrompt": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "System prompt for edit suggestions. Leave empty to use the built-in default."
+        },
+        "claudeComplete.edit.promptTemplate": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "Prompt template for edit suggestions. Placeholders: {selection}, {instruction}, {language}, {filename}, {before}, {after}. Leave empty to use the built-in default."
+        },
+        "claudeComplete.disabledLanguages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "plaintext",
+            "markdown",
+            "scminput"
+          ],
+          "description": "Language IDs for which inline completions are disabled."
+        },
+        "claudeComplete.cache.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use Claude prompt caching: system prompt and context snapshot are sent as a stable, cached prefix."
+        },
+        "claudeComplete.cache.systemPromptTtl": {
+          "type": "string",
+          "enum": [
+            "5m",
+            "1h"
+          ],
+          "default": "5m",
+          "description": "Cache TTL for the system prompt block. 1h costs more to write but survives longer pauses."
+        },
+        "claudeComplete.cache.prewarm": {
+          "type": "boolean",
+          "default": true,
+          "description": "Write the cache (max_tokens: 0 request) as soon as a new context snapshot is created, so the first completion is already a cache hit."
+        },
+        "claudeComplete.cache.keepAlive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Refresh the cache shortly before it expires while an editor is focused, even without typing. Costs a cache read per refresh."
+        },
+        "claudeComplete.cache.snapshotMaxChars": {
+          "type": "number",
+          "default": 32000,
+          "minimum": 1000,
+          "description": "Maximum size (characters) of the context snapshot. Large files are trimmed around the cursor, keeping the file head."
+        },
+        "claudeComplete.cache.snapshotRefreshLines": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "description": "Refresh the snapshot once the document line count has drifted this far from the snapshot, or on save / file switch."
+        },
+        "claudeComplete.cache.snapshotMaxAgeSec": {
+          "type": "number",
+          "default": 120,
+          "minimum": 10,
+          "description": "Refresh the snapshot after this many seconds at the latest."
+        },
+        "claudeComplete.logPrompts": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log full prompts to the ClaudeComplete output channel (may contain source code)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.mjs --production",
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint src test --max-warnings 0",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"*.{json,md,mjs}\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && tsc -p test/e2e/tsconfig.json && node ./out/test/e2e/runTests.js",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
+    "diff": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.96.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.1.0",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.14.0",
+    "glob": "^14.0.3",
+    "mocha": "^12.0.3",
+    "prettier": "^3.9.10",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.0.5"
+  }
+}
