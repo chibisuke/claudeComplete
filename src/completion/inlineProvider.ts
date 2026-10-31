@@ -6,6 +6,7 @@ import { hashKey, LRUCache } from "./cache";
 import { buildCursorWindow } from "./contextBuilder";
 import { postprocessCompletion } from "./postprocess";
 import { toNativeInlineEditItem, type NativeEditStore } from "../edit/nativeInlineEdit";
+import { ManualTrigger, shouldServe } from "./gate";
 
 function delay(ms: number, token: vscode.CancellationToken): Promise<boolean> {
   if (ms <= 0) {
@@ -25,6 +26,7 @@ function delay(ms: number, token: vscode.CancellationToken): Promise<boolean> {
 
 export class ClaudeInlineCompletionProvider implements vscode.InlineCompletionItemProvider {
   private readonly cache = new LRUCache<string>(100);
+  private readonly manual = new ManualTrigger();
   private inFlight = 0;
 
   constructor(
@@ -45,6 +47,13 @@ export class ClaudeInlineCompletionProvider implements vscode.InlineCompletionIt
     this.cache.clear();
   }
 
+  /** Announces a manual request (Ctrl+Alt+Space) so the next explicit trigger is served even when
+   * automatic completions are off. */
+  requestManual(document: vscode.TextDocument): void {
+    this.manual.arm(document.uri.toString());
+    this.cache.clear();
+  }
+
   async provideInlineCompletionItems(
     document: vscode.TextDocument,
     position: vscode.Position,
@@ -59,7 +68,21 @@ export class ClaudeInlineCompletionProvider implements vscode.InlineCompletionIt
         ? [toNativeInlineEditItem(nativeEdit)]
         : undefined;
     }
-    if (!cfg.enabled || cfg.disabledLanguages.includes(document.languageId)) {
+    const uri = document.uri.toString();
+    const isManual = this.manual.isPending(uri);
+    if (
+      !shouldServe({
+        enabled: cfg.enabled,
+        triggerKind: context.triggerKind,
+        manualPending: isManual,
+      })
+    ) {
+      return undefined;
+    }
+    if (isManual) {
+      this.manual.consume(uri);
+    }
+    if (cfg.disabledLanguages.includes(document.languageId)) {
       return undefined;
     }
     if (document.uri.scheme !== "file" && document.uri.scheme !== "untitled") {
@@ -89,7 +112,8 @@ export class ClaudeInlineCompletionProvider implements vscode.InlineCompletionIt
     let text = this.cache.get(key);
 
     if (text === undefined) {
-      const isAutomatic = context.triggerKind === vscode.InlineCompletionTriggerKind.Automatic;
+      const isAutomatic =
+        context.triggerKind === vscode.InlineCompletionTriggerKind.Automatic && !isManual;
       if (isAutomatic && !(await delay(cfg.completion.debounceMs, token))) {
         return undefined;
       }
@@ -176,7 +200,7 @@ export class ClaudeInlineCompletionProvider implements vscode.InlineCompletionIt
       this.service.touch();
       this.service.log.usage("completion", usage, Date.now() - started);
       if (!token.isCancellationRequested) {
-        this.service.statusBar.set("idle");
+        this.service.statusBar.set(cfg.enabled ? "idle" : "manual");
       }
       return text;
     } catch (err) {
@@ -188,7 +212,7 @@ export class ClaudeInlineCompletionProvider implements vscode.InlineCompletionIt
     } finally {
       this.inFlight--;
       if (this.inFlight === 0 && token.isCancellationRequested) {
-        this.service.statusBar.set(cfg.enabled ? "idle" : "disabled");
+        this.service.statusBar.set(cfg.enabled ? "idle" : "manual");
       }
     }
   }

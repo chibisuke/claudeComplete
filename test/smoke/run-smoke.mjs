@@ -86,7 +86,7 @@ function waitForHttp(url, timeoutMs) {
   });
 }
 
-function assertRequests(provider, logFile) {
+function assertRequests(provider, logFile, { expectTtlSwitch = false } = {}) {
   const lines = fs.existsSync(logFile)
     ? fs.readFileSync(logFile, "utf8").trim().split("\n").filter(Boolean)
     : [];
@@ -135,6 +135,17 @@ function assertRequests(provider, logFile) {
     // Saving the file legitimately refreshes the snapshot, so require reuse rather than a single prefix.
     if (completions.length > 1 && prefixes.size >= completions.length) {
       fail("no two completion requests shared a cached prefix");
+    }
+    if (expectTtlSwitch) {
+      const ttls = real.map((r) => r.body.system[0].cache_control?.ttl ?? "5m");
+      const firstHour = ttls.indexOf("1h");
+      if (firstHour === -1) {
+        fail("no request carried ttl 1h after toggling the cache duration");
+      }
+      if (ttls.slice(0, firstHour).some((t) => t !== "5m")) {
+        fail("requests before the toggle should use the default 5m ttl");
+      }
+      log(`[anthropic] cache ttl per request: ${ttls.join(", ")} (switched to 1h after toggle)`);
     }
   } else {
     const real = reqs.filter((r) => r.kind === "openai");
@@ -193,6 +204,9 @@ async function runProvider(provider, codeServer, vsix, chromium, native) {
     "claudeComplete.completion.debounceMs": 50,
     "claudeComplete.cache.prewarm": true,
     "claudeComplete.logPrompts": true,
+    // Anthropic runs exercise automatic completions; the OpenAI run keeps the default (off)
+    // and uses the manual trigger.
+    ...(provider === "anthropic" ? { "claudeComplete.enabled": true } : {}),
     // code-server grants proposed APIs to every extension, so force the fallback explicitly.
     "claudeComplete.edit.presentation": native ? "native" : "inline-decorations",
   };
@@ -246,11 +260,13 @@ async function runProvider(provider, codeServer, vsix, chromium, native) {
       workspace: ws,
       provider,
       native,
+      manualOnly: provider !== "anthropic",
+      toggleCacheTtl: provider === "anthropic" && !native,
       label,
       shots: out,
       log,
     });
-    assertRequests(provider, fakeLog);
+    assertRequests(provider, fakeLog, { expectTtlSwitch: provider === "anthropic" && !native });
   } finally {
     // Collect the extension's output channel log for diagnostics.
     try {

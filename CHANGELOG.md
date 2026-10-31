@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-31
+
+### Changed
+
+- Automatic inline completions are now **off by default** (`claudeComplete.enabled: false`). Toggle them via the status bar item or **ClaudeComplete: Toggle Automatic Completions**.
+
+### Added
+
+- **ClaudeComplete: Trigger Inline Completion** (`Ctrl+Alt+Space`) requests a single completion at any time, also while automatic completions are off. Typing and the editor's own trigger shortcut cost nothing in that mode.
+- **ClaudeComplete: Toggle Cache Duration (5m / 1h)** switches the system-prompt cache TTL; the status bar tooltip shows the current duration and links to the toggle.
+
 ## [0.2.0] - 2026-10-30
 
 ### Changed

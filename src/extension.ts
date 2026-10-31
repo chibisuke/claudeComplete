@@ -35,11 +35,28 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("claudeComplete.toggle", async () => {
       const cfg = vscode.workspace.getConfiguration(SECTION);
-      const next = !cfg.get<boolean>("enabled", true);
+      const next = !cfg.get<boolean>("enabled", false);
       await cfg.update("enabled", next, vscode.ConfigurationTarget.Global);
       void vscode.window.setStatusBarMessage(
-        `ClaudeComplete ${next ? "enabled" : "disabled"}`,
+        `ClaudeComplete: automatic completions ${next ? "on" : "off"}`,
         2000,
+      );
+    }),
+    vscode.commands.registerCommand("claudeComplete.triggerCompletion", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      inline.requestManual(editor.document);
+      await vscode.commands.executeCommand("editor.action.inlineSuggest.trigger");
+    }),
+    vscode.commands.registerCommand("claudeComplete.toggleCacheTtl", async () => {
+      const cfg = vscode.workspace.getConfiguration(SECTION);
+      const next = cfg.get<string>("cache.systemPromptTtl", "5m") === "1h" ? "5m" : "1h";
+      await cfg.update("cache.systemPromptTtl", next, vscode.ConfigurationTarget.Global);
+      void vscode.window.setStatusBarMessage(
+        `ClaudeComplete: prompt cache duration ${next === "1h" ? "1 hour" : "5 minutes"}`,
+        3000,
       );
     }),
     vscode.commands.registerCommand("claudeComplete.editSelection", () => edits.editSelection()),

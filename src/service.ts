@@ -57,7 +57,11 @@ export class CompletionService implements vscode.Disposable {
     try {
       const key = await this.secrets.get(this.config.provider);
       this.provider = createProvider(this.config, key);
-      this.statusBar.set(this.config.enabled ? "idle" : "disabled");
+      this.statusBar.setInfo({
+        cacheTtl: this.config.cache.systemPromptTtl,
+        cacheEnabled: this.config.cache.enabled && this.config.provider === "anthropic",
+      });
+      this.statusBar.set(this.config.enabled ? "idle" : "manual");
     } catch (err) {
       this.providerError = err instanceof LLMError ? err : new LLMError(String(err), "other", err);
       this.statusBar.set(

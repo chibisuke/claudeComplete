@@ -2,7 +2,7 @@
   "name": "claudecomplete",
   "displayName": "ClaudeComplete",
   "description": "Inline code completions and AI edit suggestions powered by the Claude API (or any OpenAI-compatible API).",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "chibisuke",
   "license": "MIT",
   "repository": {
@@ -44,7 +44,15 @@
       },
       {
         "command": "claudeComplete.toggle",
-        "title": "ClaudeComplete: Toggle Inline Completions"
+        "title": "ClaudeComplete: Toggle Automatic Completions"
+      },
+      {
+        "command": "claudeComplete.triggerCompletion",
+        "title": "ClaudeComplete: Trigger Inline Completion"
+      },
+      {
+        "command": "claudeComplete.toggleCacheTtl",
+        "title": "ClaudeComplete: Toggle Cache Duration (5m / 1h)"
       },
       {
         "command": "claudeComplete.editSelection",
@@ -76,6 +84,12 @@
       }
     ],
     "keybindings": [
+      {
+        "command": "claudeComplete.triggerCompletion",
+        "key": "ctrl+alt+space",
+        "mac": "ctrl+alt+space",
+        "when": "editorTextFocus"
+      },
       {
         "command": "claudeComplete.editSelection",
         "key": "ctrl+shift+i",
@@ -121,8 +135,8 @@
       "properties": {
         "claudeComplete.enabled": {
           "type": "boolean",
-          "default": true,
-          "description": "Enable inline completions."
+          "default": false,
+          "markdownDescription": "Automatic inline completions while typing. When off, nothing is requested until you press `Ctrl+Alt+Space` (**ClaudeComplete: Trigger Inline Completion**). Toggle via the status bar item or **ClaudeComplete: Toggle Automatic Completions**."
         },
         "claudeComplete.provider": {
           "type": "string",
@@ -285,7 +299,7 @@
             "1h"
           ],
           "default": "5m",
-          "description": "Cache TTL for the system prompt block. 1h costs more to write but survives longer pauses."
+          "markdownDescription": "Cache TTL for the system prompt block. `5m` is enough for normal work because every request refreshes the timer; `1h` costs twice as much to write and only pays off across longer pauses. Switch quickly with **ClaudeComplete: Toggle Cache Duration**."
         },
         "claudeComplete.cache.prewarm": {
           "type": "boolean",

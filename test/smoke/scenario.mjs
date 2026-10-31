@@ -36,6 +36,8 @@ export async function runScenario({
   workspace,
   provider,
   native = false,
+  manualOnly = false,
+  toggleCacheTtl = false,
   label = provider,
   shots,
   log,
@@ -90,15 +92,20 @@ export async function runScenario({
     await page.keyboard.press("Control+End");
 
     // --- Inline completion ---
+    const ghost = () =>
+      page.locator(".ghost-text-decoration, .ghost-text-decoration-preview, .ghost-text").count();
     await page.keyboard.type("function add(a: number, b: number): number {", { delay: 20 });
-    await waitFor(
-      () =>
-        page.locator(".ghost-text-decoration, .ghost-text-decoration-preview, .ghost-text").count(),
-      {
-        timeout: 20000,
-        label: "ghost text",
-      },
-    );
+    if (manualOnly) {
+      // Automatic completions are off (the default): nothing may appear while typing...
+      await sleep(3000);
+      if ((await ghost()) > 0) {
+        throw new Error("ghost text appeared although automatic completions are off");
+      }
+      log(`[${label}] no automatic ghost text while off: ok`);
+      // ...but Ctrl+Alt+Space requests one.
+      await page.keyboard.press("Control+Alt+Space");
+    }
+    await waitFor(ghost, { timeout: 20000, label: "ghost text" });
     await sleep(300);
     await shot("01-ghost-text");
     await page.keyboard.press("Tab");
@@ -108,6 +115,12 @@ export async function runScenario({
       label: "accepted completion on disk",
     });
     log(`[${label}] inline completion accepted: ok`);
+
+    if (toggleCacheTtl) {
+      await runCommand(page, "ClaudeComplete: Toggle Cache Duration");
+      await sleep(800);
+      log(`[${label}] toggled cache duration to 1h`);
+    }
 
     // --- Edit suggestion ---
     await page.keyboard.press("Control+End");

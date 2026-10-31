@@ -23,7 +23,11 @@ Download the latest `.vsix` from the
 
 1. Run **ClaudeComplete: Set API Key** from the command palette and paste your Anthropic API key.
    The key is stored in VS Code's secret storage, never in `settings.json`.
-2. Start typing in a source file. Ghost text appears after a short pause; press `Tab` to accept.
+2. Press `Ctrl+Alt+Space` in a source file to request a completion. Ghost text appears; press `Tab`
+   to accept.
+3. Automatic completions while typing are **off by default**. Turn them on by clicking the
+   `Claude` item in the status bar, with **ClaudeComplete: Toggle Automatic Completions**, or via
+   the `claudeComplete.enabled` setting. `Ctrl+Alt+Space` keeps working in both modes.
 
 ### Using an OpenAI-compatible server
 
@@ -108,7 +112,11 @@ Every request is built from three layers, stable first:
    Small and sent fresh every time.
 
 When a snapshot is created the extension sends a `max_tokens: 0` request that writes the cache
-without generating output, so the first real completion is already a cache hit. The status bar
+without generating output, so the first real completion is already a cache hit (only while
+automatic completions are on; in manual mode the first `Ctrl+Alt+Space` request writes the cache).
+The system prompt's TTL is `5m` by default: every request refreshes the timer, so during normal
+work the cache simply stays warm. Switch to `1h` with **ClaudeComplete: Toggle Cache Duration**
+when you take longer breaks; writes then cost twice as much, reads are unchanged. The status bar
 tooltip and the **ClaudeComplete** output channel show uncached, cache-read and cache-write token
 counts per request. Caches are per model: completions and edits only share a cache if both use the
 same model.

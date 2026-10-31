@@ -56,7 +56,7 @@ function orDefault(value: string | undefined, fallback: string): string {
 export function readConfig(scope?: vscode.ConfigurationScope): ClaudeCompleteConfig {
   const c = vscode.workspace.getConfiguration(SECTION, scope);
   return {
-    enabled: c.get<boolean>("enabled", true),
+    enabled: c.get<boolean>("enabled", false),
     provider: c.get<ProviderId>("provider", "anthropic"),
     anthropicBaseUrl: c.get<string>("anthropic.baseUrl", ""),
     openaiBaseUrl: c.get<string>("openai.baseUrl", "http://localhost:11434/v1"),
